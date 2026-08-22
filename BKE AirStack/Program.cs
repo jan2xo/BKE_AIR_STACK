@@ -38,7 +38,13 @@ namespace BKE_Air_Stack
                     authorization = agentClient.AuthorizeAsync().GetAwaiter().GetResult();
                 }
 
-                if (authorization.Status != AuthorizationStatus.Allowed)
+            if (authorization.Status == AuthorizationStatus.AgentUnavailable)
+            {
+                AgentRecoveryDialog.ShowRecovery();
+                return;
+            }
+
+            if (authorization.Status != AuthorizationStatus.Allowed)
                 {
                     MessageBox.Show(
                         authorization.Message,
