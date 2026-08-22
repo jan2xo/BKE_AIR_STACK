@@ -24,20 +24,29 @@ namespace BKE_Air_Stack
                 return;
             }
 
-            AuthorizationResult authorization;
-            using (var agentClient = new AgentClient())
+            bool graceActive;
+            using (var gracePeriodClient = new GracePeriodClient())
             {
-                authorization = agentClient.AuthorizeAsync().GetAwaiter().GetResult();
+                graceActive = gracePeriodClient.IsActiveAsync().GetAwaiter().GetResult();
             }
 
-            if (authorization.Status != AuthorizationStatus.Allowed)
+            if (!graceActive)
             {
-                MessageBox.Show(
-                    authorization.Message,
-                    "AIRSTACK Licensing",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                return;
+                AuthorizationResult authorization;
+                using (var agentClient = new AgentClient())
+                {
+                    authorization = agentClient.AuthorizeAsync().GetAwaiter().GetResult();
+                }
+
+                if (authorization.Status != AuthorizationStatus.Allowed)
+                {
+                    MessageBox.Show(
+                        authorization.Message,
+                        "AIRSTACK Licensing",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
             }
 
             Application.Run(new Form1());
