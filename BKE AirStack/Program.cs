@@ -42,7 +42,7 @@ namespace BKE_Air_Stack
                 {
                     MessageBox.Show(
                         authorization.Message,
-                        "AIRSTACK Licensing",
+                        "Air Stack Licensing",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                     return;

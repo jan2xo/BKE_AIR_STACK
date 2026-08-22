@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "productId": "airstack",
-  "displayName": "AIRSTACK",
+  "productId": "bke-air-stack",
+  "displayName": "Air Stack",
   "version": "1.0.0",
   "entryPoint": "BKE AirStack.exe",
   "updateChannel": "stable",

@@ -43,7 +43,7 @@ namespace BKE_Air_Stack.Licensing
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.InvalidResponse,
-                    "AIRSTACK product or installation identity is missing or invalid.");
+                    "Air Stack product or installation identity is missing or invalid.");
             }
 
             var request = new AuthorizationRequest
@@ -66,7 +66,7 @@ namespace BKE_Air_Stack.Licensing
                 {
                     return new AuthorizationResult(
                         AuthorizationStatus.InvalidResponse,
-                        "The BKE Licensing Agent returned an invalid authorization response.");
+                        "The Licensing Agent returned an invalid authorization response.");
                 }
 
                 var responseJson = await response.Content.ReadAsStringAsync()
@@ -78,14 +78,14 @@ namespace BKE_Air_Stack.Licensing
                 {
                     return new AuthorizationResult(
                         AuthorizationStatus.InvalidResponse,
-                        "The BKE Licensing Agent returned an invalid authorization response.");
+                        "The Licensing Agent returned an invalid authorization response.");
                 }
 
                 if (decision.Authorized.Value)
                 {
                     return new AuthorizationResult(
                         AuthorizationStatus.Allowed,
-                        "AIRSTACK is authorized.");
+                        "Air Stack is authorized.");
                 }
 
                 return MapDenial(decision.Reason);
@@ -94,19 +94,19 @@ namespace BKE_Air_Stack.Licensing
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.AgentUnavailable,
-                    "The BKE Licensing Agent did not respond in time.");
+                    "The Licensing Agent did not respond in time.");
             }
             catch (HttpRequestException)
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.AgentUnavailable,
-                    "The BKE Licensing Agent is unavailable.");
+                    "The Licensing Agent is unavailable.");
             }
             catch (JsonException)
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.InvalidResponse,
-                    "The BKE Licensing Agent returned malformed data.");
+                    "The Licensing Agent returned malformed data.");
             }
             catch (Exception)
             {
@@ -127,7 +127,7 @@ namespace BKE_Air_Stack.Licensing
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.ActivationRequired,
-                    "AIRSTACK requires activation. Open the BKE Licensing Agent License Center.");
+                    "Air Stack requires activation. Open the Licensing Agent License Center.");
             }
 
             if (string.Equals(reason, "unsupported", StringComparison.OrdinalIgnoreCase) ||
@@ -136,12 +136,12 @@ namespace BKE_Air_Stack.Licensing
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.Unsupported,
-                    "This AIRSTACK product or version is not supported.");
+                    "This Air Stack product or version is not supported.");
             }
 
             return new AuthorizationResult(
                 AuthorizationStatus.Denied,
-                "The BKE Licensing Agent denied AIRSTACK startup.");
+                "The Licensing Agent denied Air Stack startup.");
         }
 
         private static ProductManifest LoadManifest()
@@ -152,12 +152,12 @@ namespace BKE_Air_Stack.Licensing
 
             if (manifest == null ||
                 manifest.SchemaVersion != 1 ||
-                !string.Equals(manifest.ProductId, "airstack", StringComparison.Ordinal) ||
-                !string.Equals(manifest.DisplayName, "AIRSTACK", StringComparison.Ordinal) ||
+                !string.Equals(manifest.ProductId, "bke-air-stack", StringComparison.Ordinal) ||
+                !string.Equals(manifest.DisplayName, "Air Stack", StringComparison.Ordinal) ||
                 !string.Equals(manifest.EntryPoint, "BKE AirStack.exe", StringComparison.Ordinal) ||
                 string.IsNullOrWhiteSpace(manifest.Version))
             {
-                throw new InvalidDataException("Invalid AIRSTACK manifest.");
+                throw new InvalidDataException("Invalid Air Stack manifest.");
             }
 
             var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version;
@@ -167,7 +167,7 @@ namespace BKE_Air_Stack.Licensing
 
             if (!string.Equals(manifest.Version, canonicalVersion, StringComparison.Ordinal))
             {
-                throw new InvalidDataException("Manifest version does not match AIRSTACK.");
+                throw new InvalidDataException("Manifest version does not match Air Stack.");
             }
 
             return manifest;
