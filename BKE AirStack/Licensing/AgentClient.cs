@@ -29,9 +29,11 @@ namespace BKE_Air_Stack.Licensing
             CancellationToken cancellationToken = default)
         {
             ProductManifest manifest;
+            string installationId;
             try
             {
                 manifest = LoadManifest();
+                installationId = InstallationIdentity.GetOrCreate();
             }
             catch (Exception ex) when (
                 ex is IOException ||
@@ -41,14 +43,14 @@ namespace BKE_Air_Stack.Licensing
             {
                 return new AuthorizationResult(
                     AuthorizationStatus.InvalidResponse,
-                    "AIRSTACK product identity is missing or invalid.");
+                    "AIRSTACK product or installation identity is missing or invalid.");
             }
 
             var request = new AuthorizationRequest
             {
                 ProductId = manifest.ProductId,
                 Version = manifest.Version,
-                InstallationId = Guid.NewGuid().ToString("D")
+                InstallationId = installationId
             };
 
             try
