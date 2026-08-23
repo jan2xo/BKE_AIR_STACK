@@ -7,7 +7,8 @@ name (`BKE AirStack.exe`), product identity (`bke-air-stack`), and adjacent
 
 ## Build
 
-On disposable Windows compute with the .NET 6 SDK and Inno Setup 6:
+On disposable Windows compute with the repository-pinned .NET 6.0.428 SDK and
+Inno Setup 6.7.1:
 
 ```powershell
 ./scripts/build-windows-installer.ps1
