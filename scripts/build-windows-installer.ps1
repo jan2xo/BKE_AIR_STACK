@@ -57,6 +57,7 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXIT
     --no-restore `
     -p:PublishSingleFile=false `
     -p:PublishTrimmed=false `
+    -p:GenerateManifests=false `
     -p:SignManifests=false `
     -p:DebugType=None `
     -p:DebugSymbols=false `
