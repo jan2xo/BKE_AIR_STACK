@@ -68,7 +68,16 @@ jobs:
       - name: Publish
         shell: pwsh
         run: |
-          dotnet publish 'BKE AirStack/BKE AirStack.csproj' -c Release -r win-x64 --self-contained false -o publish
+          # The project carries legacy ClickOnce/PFX manifest-signing settings from
+          # desktop publishing. GitHub-hosted release builds must not depend on a
+          # developer certificate store. Preserve the application manifest itself,
+          # but disable legacy ClickOnce manifest signing for this publish step.
+          dotnet publish 'BKE AirStack/BKE AirStack.csproj' `
+            -c Release `
+            -r win-x64 `
+            --self-contained false `
+            -p:SignManifests=false `
+            -o publish
 
       - name: Read existing product version
         id: version
@@ -80,7 +89,12 @@ jobs:
       - name: Package release
         shell: pwsh
         run: |
-          Compress-Archive -Path publish\* -DestinationPath "BKE-Air-Stack-${{ steps.version.outputs.version }}-win-x64.zip" -Force
+          $version = '${{ steps.version.outputs.version }}'
+          $asset = "BKE-Air-Stack-$version-win-x64.zip"
+          Compress-Archive -Path publish\* -DestinationPath $asset -Force
+
+          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Set-Content -Encoding ascii "$asset.sha256"
 
       - name: Publish GitHub Release without version bump
         env:
@@ -90,9 +104,13 @@ jobs:
           $version = '${{ steps.version.outputs.version }}'
           $tag = "v$version"
           $asset = "BKE-Air-Stack-$version-win-x64.zip"
+          $hashAsset = "$asset.sha256"
+
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $asset --clobber
+            gh release upload $tag $asset $hashAsset --clobber
           } else {
-            gh release create $tag $asset --title "Air Stack $version" --notes "GitHub-built Air Stack $version release. Includes the vMix project launch hotfix; application version unchanged."
+            gh release create $tag $asset $hashAsset `
+              --title "Air Stack $version" `
+              --notes "GitHub-built Air Stack $version release. Includes the vMix project launch hotfix; application version unchanged. SHA-256 checksum is published alongside the package."
           }
