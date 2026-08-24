@@ -30,29 +30,6 @@ jobs:
         with:
           dotnet-version: 6.0.428
 
-      - name: Apply vMix launch hotfix for release build
-        shell: pwsh
-        run: |
-          $path = 'BKE AirStack/Form1.cs'
-          $text = [IO.File]::ReadAllText($path)
-          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE Air Stack.vmix");'.Replace('\"','"')
-          $new = @'
-          Process.Start(new ProcessStartInfo
-          {
-              FileName = @"C:\Program Files (x86)\vMix\vMix64.exe",
-              Arguments = "\"D:\\BKE Air Stack.vmix\"",
-              WorkingDirectory = @"C:\Program Files (x86)\vMix",
-              UseShellExecute = true
-          });
-          '@.Trim()
-
-          if ($text.Contains($old)) {
-            $text = $text.Replace($old, $new)
-            [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($true))
-          } elseif (-not $text.Contains('WorkingDirectory = @"C:\Program Files (x86)\vMix"')) {
-            throw 'Neither the legacy vMix launch nor the expected hotfix was found.'
-          }
-
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --version=6.7.1 --yes --no-progress
