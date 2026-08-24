@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/vmix-launch-hotfix-release.yml'
       - 'BKE AirStack/**'
+      - 'installer/**'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +30,7 @@ jobs:
         run: |
           $path = 'BKE AirStack/Form1.cs'
           $text = [IO.File]::ReadAllText($path)
-          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE AirStack.vmix");'
+          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE Air Stack.vmix");'
           $new = @'
           Process.Start(new ProcessStartInfo
           {
@@ -50,21 +51,13 @@ jobs:
       - name: Restore
         run: dotnet restore 'BKE AirStack/BKE AirStack.csproj'
 
-      - name: Publish
+      - name: Publish application
         shell: pwsh
         run: |
-          # Keep the Windows application manifest, but disable legacy ClickOnce
-          # deployment-manifest generation/signing. The repository still carries
-          # a developer-era temporary PFX/thumbprint that must not be required by
-          # a GitHub-hosted release build.
           dotnet publish 'BKE AirStack/BKE AirStack.csproj' `
             -c Release `
             -r win-x64 `
             --self-contained false `
-            -p:GenerateManifests=false `
-            -p:SignManifests=false `
-            -p:ManifestKeyFile= `
-            -p:ManifestCertificateThumbprint= `
             -o publish
 
       - name: Read existing product version
@@ -75,38 +68,49 @@ jobs:
           if (-not $manifest.version) { throw 'bke.manifest.json has no version' }
           "version=$($manifest.version)" >> $env:GITHUB_OUTPUT
 
-      - name: Verify release payload
+      - name: Verify application payload
         shell: pwsh
         run: |
-          $exe = 'publish/BKE AirStack.exe'
-          $manifest = 'publish/bke.manifest.json'
-          if (-not (Test-Path $exe)) { throw "Missing release executable: $exe" }
-          if (-not (Test-Path $manifest)) { throw "Missing product manifest: $manifest" }
+          if (-not (Test-Path 'publish/BKE AirStack.exe')) { throw 'Missing publish/BKE AirStack.exe' }
+          if (-not (Test-Path 'publish/bke.manifest.json')) { throw 'Missing publish/bke.manifest.json' }
 
-      - name: Package release
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
-          $asset = "BKE-Air-Stack-$version-win-x64.zip"
-          Compress-Archive -Path publish\* -DestinationPath $asset -Force
-          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $asset" | Set-Content -Encoding ascii "$asset.sha256"
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$version" 'installer/AirStack.iss'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Publish GitHub Release without version bump
+          $installer = "installer-output/Air-Stack-$version-Windows-x64.exe"
+          if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
+
+      - name: Generate installer SHA-256
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $installer = "installer-output/Air-Stack-$version-Windows-x64.exe"
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Air-Stack-$version-Windows-x64.exe" | Set-Content -Encoding ascii "$installer.sha256"
+
+      - name: Publish installer to GitHub Release without version bump
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $tag = "v$version"
-          $asset = "BKE-Air-Stack-$version-win-x64.zip"
-          $hashAsset = "$asset.sha256"
+          $installer = "installer-output/Air-Stack-$version-Windows-x64.exe"
+          $hashAsset = "$installer.sha256"
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $asset $hashAsset --clobber
+            gh release upload $tag $installer $hashAsset --clobber
           } else {
-            gh release create $tag $asset $hashAsset `
+            gh release create $tag $installer $hashAsset `
               --title "Air Stack $version" `
-              --notes "GitHub-built Air Stack $version release. Includes the vMix launch hotfix; application version unchanged. SHA-256 checksum is published alongside the package."
+              --notes "Air Stack $version Windows x64 installer built by GitHub Actions. Application version unchanged. SHA-256 checksum published alongside the installer."
           }
