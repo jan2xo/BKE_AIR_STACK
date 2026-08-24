@@ -1,4 +1,4 @@
-name: Air Stack release
+name: Air Stack Windows installer release
 
 on:
   push:
@@ -7,30 +7,35 @@ on:
       - '.github/workflows/vmix-launch-hotfix-release.yml'
       - 'BKE AirStack/**'
       - 'installer/**'
+      - 'scripts/**'
+      - 'global.json'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-release:
+  build-verify-release:
     runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - name: Check out exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          dotnet-version: '6.0.x'
+          ref: ${{ github.sha }}
+
+      - name: Set up .NET 6
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 6.0.428
 
       - name: Apply vMix launch hotfix for release build
         shell: pwsh
         run: |
           $path = 'BKE AirStack/Form1.cs'
           $text = [IO.File]::ReadAllText($path)
-          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE Air Stack.vmix");'
+          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE Air Stack.vmix");'.Replace('\"','"')
           $new = @'
           Process.Start(new ProcessStartInfo
           {
@@ -41,60 +46,48 @@ jobs:
           });
           '@.Trim()
 
-          if (-not $text.Contains($old)) {
-            throw 'Expected legacy vMix launch line was not found. Refusing to build an unknown source state.'
+          if ($text.Contains($old)) {
+            $text = $text.Replace($old, $new)
+            [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($true))
+          } elseif (-not $text.Contains('WorkingDirectory = @"C:\Program Files (x86)\vMix"')) {
+            throw 'Neither the legacy vMix launch nor the expected hotfix was found.'
           }
-
-          $text = $text.Replace($old, $new)
-          [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($true))
-
-      - name: Restore
-        run: dotnet restore 'BKE AirStack/BKE AirStack.csproj'
-
-      - name: Publish application
-        shell: pwsh
-        run: |
-          dotnet publish 'BKE AirStack/BKE AirStack.csproj' `
-            -c Release `
-            -r win-x64 `
-            --self-contained false `
-            -o publish
-
-      - name: Read existing product version
-        id: version
-        shell: pwsh
-        run: |
-          $manifest = Get-Content 'BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json
-          if (-not $manifest.version) { throw 'bke.manifest.json has no version' }
-          "version=$($manifest.version)" >> $env:GITHUB_OUTPUT
-
-      - name: Verify application payload
-        shell: pwsh
-        run: |
-          if (-not (Test-Path 'publish/BKE AirStack.exe')) { throw 'Missing publish/BKE AirStack.exe' }
-          if (-not (Test-Path 'publish/bke.manifest.json')) { throw 'Missing publish/bke.manifest.json' }
 
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --no-progress -y
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
 
-      - name: Build Windows installer
+      - name: Build application and installer
+        shell: pwsh
+        run: ./scripts/build-windows-installer.ps1
+
+      - name: Verify installed runtime and uninstall
         shell: pwsh
         run: |
-          $version = '${{ steps.version.outputs.version }}'
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$version" 'installer/AirStack.iss'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json).version
+          ./scripts/verify-windows-installer.ps1 -InstallerPath "./artifacts/installer/Air-Stack-$version-Windows-x64.exe"
 
-          $installer = "installer-output/Air-Stack-$version-Windows-x64.exe"
-          if (-not (Test-Path $installer)) { throw "Missing installer: $installer" }
+      - name: Verify repository diff hygiene
+        shell: pwsh
+        run: git diff --check
 
-      - name: Generate installer SHA-256
+      - name: Read product version
+        id: version
         shell: pwsh
         run: |
-          $version = '${{ steps.version.outputs.version }}'
-          $installer = "installer-output/Air-Stack-$version-Windows-x64.exe"
-          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Air-Stack-$version-Windows-x64.exe" | Set-Content -Encoding ascii "$installer.sha256"
+          $version = (Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json).version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Missing product version.' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Upload installer candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Air-Stack-Windows-x64
+          path: |
+            artifacts/installer/Air-Stack-${{ steps.version.outputs.version }}-Windows-x64.exe
+            artifacts/installer/Air-Stack-installer.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publish installer to GitHub Release without version bump
         env:
@@ -103,14 +96,17 @@ jobs:
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $tag = "v$version"
-          $installer = "installer-output/Air-Stack-$version-Windows-x64.exe"
-          $hashAsset = "$installer.sha256"
+          $installer = "artifacts/installer/Air-Stack-$version-Windows-x64.exe"
+          $metadata = 'artifacts/installer/Air-Stack-installer.json'
+          $hashFile = "artifacts/installer/Air-Stack-$version-Windows-x64.exe.sha256"
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Air-Stack-$version-Windows-x64.exe" | Set-Content -LiteralPath $hashFile -Encoding ascii
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $installer $hashAsset --clobber
+            gh release upload $tag $installer $metadata $hashFile --clobber
           } else {
-            gh release create $tag $installer $hashAsset `
+            gh release create $tag $installer $metadata $hashFile `
               --title "Air Stack $version" `
-              --notes "Air Stack $version Windows x64 installer built by GitHub Actions. Application version unchanged. SHA-256 checksum published alongside the installer."
+              --notes "Air Stack $version Windows x64 installer built and installed/uninstalled on GitHub-hosted Windows. Product version unchanged."
           }
