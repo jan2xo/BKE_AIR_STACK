@@ -45,6 +45,16 @@ namespace BKE_Air_Stack
                 return System.Diagnostics.Process.Start(fileName);
             }
 
+            public static System.Diagnostics.Process[] GetProcesses()
+            {
+                return System.Diagnostics.Process.GetProcesses();
+            }
+
+            public static System.Diagnostics.Process[] GetProcessesByName(string processName)
+            {
+                return System.Diagnostics.Process.GetProcessesByName(processName);
+            }
+
             private static string FindVmixExecutable()
             {
                 var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
