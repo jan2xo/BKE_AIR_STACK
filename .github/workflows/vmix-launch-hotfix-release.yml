@@ -1,34 +1,35 @@
-name: vMix launch hotfix release
+name: Air Stack release
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/vmix-launch-hotfix-release.yml'
-      - 'BKE AirStack/Form1.cs'
-      - 'BKE AirStack/bke.manifest.json'
+      - 'BKE AirStack/**'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  patch-build-release:
+  build-release:
     runs-on: windows-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Patch vMix launch invocation
-        id: patch
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Apply vMix launch hotfix for release build
         shell: pwsh
         run: |
           $path = 'BKE AirStack/Form1.cs'
           $text = [IO.File]::ReadAllText($path)
-
-          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE Air Stack.vmix");'
+          $old = 'Process.Start("C:\\Program Files (x86)\\vMix\\vMix64.exe", @"""D:/BKE AirStack.vmix");'
           $new = @'
           Process.Start(new ProcessStartInfo
           {
@@ -39,28 +40,12 @@ jobs:
           });
           '@.Trim()
 
-          if ($text.Contains($old)) {
-            $text = $text.Replace($old, $new)
-            [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($true))
-            "changed=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "changed=false" >> $env:GITHUB_OUTPUT
+          if (-not $text.Contains($old)) {
+            throw 'Expected legacy vMix launch line was not found. Refusing to build an unknown source state.'
           }
 
-      - name: Commit source hotfix
-        if: steps.patch.outputs.changed == 'true'
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add 'BKE AirStack/Form1.cs'
-          git commit -m "fix: launch vMix with valid quoted project path"
-          git push origin HEAD:main
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '6.0.x'
+          $text = $text.Replace($old, $new)
+          [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($true))
 
       - name: Restore
         run: dotnet restore 'BKE AirStack/BKE AirStack.csproj'
@@ -68,15 +53,18 @@ jobs:
       - name: Publish
         shell: pwsh
         run: |
-          # The project carries legacy ClickOnce/PFX manifest-signing settings from
-          # desktop publishing. GitHub-hosted release builds must not depend on a
-          # developer certificate store. Preserve the application manifest itself,
-          # but disable legacy ClickOnce manifest signing for this publish step.
+          # Keep the Windows application manifest, but disable legacy ClickOnce
+          # deployment-manifest generation/signing. The repository still carries
+          # a developer-era temporary PFX/thumbprint that must not be required by
+          # a GitHub-hosted release build.
           dotnet publish 'BKE AirStack/BKE AirStack.csproj' `
             -c Release `
             -r win-x64 `
             --self-contained false `
+            -p:GenerateManifests=false `
             -p:SignManifests=false `
+            -p:ManifestKeyFile= `
+            -p:ManifestCertificateThumbprint= `
             -o publish
 
       - name: Read existing product version
@@ -84,7 +72,16 @@ jobs:
         shell: pwsh
         run: |
           $manifest = Get-Content 'BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json
+          if (-not $manifest.version) { throw 'bke.manifest.json has no version' }
           "version=$($manifest.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Verify release payload
+        shell: pwsh
+        run: |
+          $exe = 'publish/BKE AirStack.exe'
+          $manifest = 'publish/bke.manifest.json'
+          if (-not (Test-Path $exe)) { throw "Missing release executable: $exe" }
+          if (-not (Test-Path $manifest)) { throw "Missing product manifest: $manifest" }
 
       - name: Package release
         shell: pwsh
@@ -92,7 +89,6 @@ jobs:
           $version = '${{ steps.version.outputs.version }}'
           $asset = "BKE-Air-Stack-$version-win-x64.zip"
           Compress-Archive -Path publish\* -DestinationPath $asset -Force
-
           $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $asset" | Set-Content -Encoding ascii "$asset.sha256"
 
@@ -112,5 +108,5 @@ jobs:
           } else {
             gh release create $tag $asset $hashAsset `
               --title "Air Stack $version" `
-              --notes "GitHub-built Air Stack $version release. Includes the vMix project launch hotfix; application version unchanged. SHA-256 checksum is published alongside the package."
+              --notes "GitHub-built Air Stack $version release. Includes the vMix launch hotfix; application version unchanged. SHA-256 checksum is published alongside the package."
           }
