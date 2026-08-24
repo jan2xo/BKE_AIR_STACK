@@ -1,39 +1,48 @@
-#define MyAppName "Air Stack"
-#ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+#ifndef AppVersion
+  #error AppVersion must be supplied by the packaging script.
 #endif
-#define MyAppPublisher "BKE Digital Solutions"
-#define MyAppExeName "BKE AirStack.exe"
+
+#ifndef SourceDir
+  #error SourceDir must be supplied by the packaging script.
+#endif
+
+#ifndef OutputDir
+  #error OutputDir must be supplied by the packaging script.
+#endif
 
 [Setup]
-AppId={{8E8DB594-27D6-4C60-87DA-16E1C0A63B43}
-AppName={#MyAppName}
-AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion}
-AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\BKE\Air Stack
-DefaultGroupName=BKE\Air Stack
+AppId={{3052E18F-2EF4-4771-B60B-86294FBC70DC}
+AppName=Air Stack
+AppVersion={#AppVersion}
+AppVerName=Air Stack {#AppVersion}
+AppPublisher=BKE Digital Solutions
+DefaultDirName={autopf}\BKE AirStack
+DefaultGroupName=Air Stack
 DisableProgramGroupPage=yes
-OutputDir=..\installer-output
-OutputBaseFilename=Air-Stack-{#MyAppVersion}-Windows-x64
-Compression=lzma2
-SolidCompression=yes
-WizardStyle=modern
+UninstallDisplayName=Air Stack
+UninstallDisplayIcon={app}\BKE AirStack.exe
+OutputDir={#OutputDir}
+OutputBaseFilename=Air-Stack-{#AppVersion}-Windows-x64
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
-UninstallDisplayName={#MyAppName}
-SetupIconFile=..\BKE AirStack\BKE LOGO.ico
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+CloseApplications=yes
+RestartApplications=no
+SetupLogging=yes
+VersionInfoVersion={#AppVersion}.0
+VersionInfoCompany=BKE Digital Solutions
+VersionInfoDescription=Air Stack Windows x64 installer
+VersionInfoProductName=Air Stack
+VersionInfoProductVersion={#AppVersion}
 
 [Files]
-Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\BKE\Air Stack"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\Air Stack"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "{group}\Air Stack"; Filename: "{app}\BKE AirStack.exe"; WorkingDir: "{app}"
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Air Stack"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\BKE AirStack.exe"; Description: "Launch Air Stack"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
