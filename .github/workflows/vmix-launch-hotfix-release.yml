@@ -10,6 +10,12 @@ on:
       - 'scripts/**'
       - 'global.json'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish the verified installer to the versioned GitHub Release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -67,6 +73,7 @@ jobs:
           retention-days: 14
 
       - name: Publish installer to GitHub Release without version bump
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release == true }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
