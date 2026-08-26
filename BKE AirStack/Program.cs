@@ -38,6 +38,7 @@ namespace BKE_Air_Stack
 
             var mainForm = new Form1();
             AddRenderDockModule(mainForm);
+            AgentUpdateCoordinator.Attach(mainForm);
             Application.Run(mainForm);
         }
 
