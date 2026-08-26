@@ -35,7 +35,7 @@ namespace BKE_Air_Stack.Licensing
                             await Task.Delay(TimeSpan.FromSeconds(1));
                             status = await client.StatusAsync(product);
                             if (status == null || status.State == "refresh_failed" || status.State == "verification_failed") break;
-                            if (status.Available) break;
+                            if (status.Available || status.State == "suppressed_update") break;
                         }
                     }
                     if (status.Available) statuses.Add(status);
@@ -53,7 +53,23 @@ namespace BKE_Air_Stack.Licensing
             var label = new Label { AutoSize = true, ForeColor = Color.White, Text = $"Updates are available for {names}.", Top = 13, Left = 12 };
             var later = new Button { Text = "Later", Width = 72, Height = 30, Dock = DockStyle.Right };
             var update = new Button { Text = "Update", Width = 82, Height = 30, Dock = DockStyle.Right };
-            later.Click += (_, __) => { form.Controls.Remove(banner); banner.Dispose(); client.Dispose(); };
+            later.Click += async (_, __) =>
+            {
+                later.Enabled = false;
+                try
+                {
+                    foreach (var status in statuses)
+                    {
+                        try { await client.DismissAsync(status); } catch { /* Later remains non-fatal if Agent changed underneath us. */ }
+                    }
+                }
+                finally
+                {
+                    form.Controls.Remove(banner);
+                    banner.Dispose();
+                    client.Dispose();
+                }
+            };
             update.Click += async (_, __) =>
             {
                 update.Enabled = false;
