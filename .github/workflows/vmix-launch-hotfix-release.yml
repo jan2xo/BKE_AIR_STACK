@@ -44,6 +44,12 @@ jobs:
         shell: pwsh
         run: ./scripts/build-windows-installer.ps1
 
+      - name: Build verified updater payload candidate
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json).version
+          ./scripts/build-updater-payload.ps1 -PublishDirectory './artifacts/publish/win-x64' -OutputDirectory './artifacts/installer' -Version ([string]$version)
+
       - name: Verify installed runtime and uninstall
         shell: pwsh
         run: |
@@ -62,13 +68,15 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($version)) { throw 'Missing product version.' }
           "version=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Upload installer candidate
+      - name: Upload installer and updater candidates
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Air-Stack-Windows-x64
           path: |
             artifacts/installer/Air-Stack-${{ steps.version.outputs.version }}-Windows-x64.exe
             artifacts/installer/Air-Stack-installer.json
+            artifacts/installer/Air-Stack-${{ steps.version.outputs.version }}-Windows-x64.update.zip
+            artifacts/installer/Air-Stack-${{ steps.version.outputs.version }}-Windows-x64.update.json
           if-no-files-found: error
           retention-days: 14
 

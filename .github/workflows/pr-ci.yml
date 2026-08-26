@@ -34,3 +34,15 @@ jobs:
           if ($program -notmatch 'RetryAuthorization') { throw 'Bounded reauthorization missing' }
           if ($module -notmatch 'bke.module-ipc.v1') { throw 'Secure module IPC schema missing' }
           if ($module -match '--air-stack|--enterprise|Environment.GetCommandLineArgs') { throw 'CLI authority is forbidden' }
+
+      - name: Publish updater payload candidate
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json
+          $publish = './artifacts/pr-update-publish'
+          dotnet publish "BKE AirStack/BKE AirStack.csproj" -c Release -r win-x64 --self-contained true --output $publish -p:PublishSingleFile=false -p:PublishTrimmed=false -p:GenerateManifests=false -p:SignManifests=false -p:DebugType=None -p:DebugSymbols=false
+          if ($LASTEXITCODE -ne 0) { throw 'Updater payload publish failed.' }
+          Copy-Item -LiteralPath './BKE AirStack/bke.manifest.json' -Destination (Join-Path $publish 'bke.manifest.json') -Force
+          ./scripts/build-updater-payload.ps1 -PublishDirectory $publish -OutputDirectory './artifacts/pr-update' -Version ([string]$manifest.version)
+          $metadata = Get-Content -LiteralPath "./artifacts/pr-update/Air-Stack-$($manifest.version)-Windows-x64.update.json" -Raw | ConvertFrom-Json
+          if ($metadata.schema -ne 'bke.update-package.v1' -or $metadata.productId -ne 'bke-air-stack' -or $metadata.contentType -ne 'application/vnd.bke.update-package+zip') { throw 'Updater payload metadata contract invalid.' }
