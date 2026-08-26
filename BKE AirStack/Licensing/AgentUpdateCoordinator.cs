@@ -20,20 +20,30 @@ namespace BKE_Air_Stack.Licensing
         {
             var client = new AgentUpdateClient();
             form.FormClosed += (_, __) => client.Dispose();
-            var statuses = new List<UpdateStatus>();
-            foreach (var product in EnterpriseProducts)
+            try
             {
-                var status = await client.StatusAsync(product);
-                if (status == null) continue;
-                if (status.State == "never_checked")
+                var statuses = new List<UpdateStatus>();
+                foreach (var product in EnterpriseProducts)
                 {
-                    await client.QueueRefreshAsync(status);
-                    continue;
+                    var status = await client.StatusAsync(product);
+                    if (status == null) continue;
+                    if (status.State == "never_checked")
+                    {
+                        await client.QueueRefreshAsync(status);
+                        for (var attempt = 0; attempt < 30 && !form.IsDisposed; attempt++)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(1));
+                            status = await client.StatusAsync(product);
+                            if (status == null || status.State == "refresh_failed" || status.State == "verification_failed") break;
+                            if (status.Available) break;
+                        }
+                    }
+                    if (status.Available) statuses.Add(status);
                 }
-                if (status.Available) statuses.Add(status);
+                if (statuses.Count == 0 || form.IsDisposed) return;
+                form.BeginInvoke(new Action(() => ShowBanner(form, client, statuses)));
             }
-            if (statuses.Count == 0 || form.IsDisposed) return;
-            form.BeginInvoke(new Action(() => ShowBanner(form, client, statuses)));
+            catch { /* Update discovery must never escape the post-startup UI event. */ }
         }
 
         private static void ShowBanner(Form form, AgentUpdateClient client, IReadOnlyList<UpdateStatus> statuses)
