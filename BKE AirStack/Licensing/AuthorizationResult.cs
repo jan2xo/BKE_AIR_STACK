@@ -4,7 +4,7 @@ namespace BKE_Air_Stack.Licensing
     {
         Allowed,
         Denied,
-        ActivationRequired,
+        Cancelled,
         AgentUnavailable,
         Unsupported,
         InvalidResponse
