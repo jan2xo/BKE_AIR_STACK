@@ -12,14 +12,28 @@ jobs:
   windows-build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 6.0.x
+          dotnet-version: 8.0.x
+
+      - name: Verify certified SDK package
+        shell: pwsh
+        run: |
+          $package = "packages/BKE.Desktop.Client.1.0.0.nupkg"
+          if (-not (Test-Path -LiteralPath $package)) { throw 'Certified BKE Desktop Client SDK package is missing.' }
+          $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '9cd80194bc0ddb5f1f983143d37282f470cfb7772e41fa2d9df691f48425071e') { throw "Unexpected BKE Desktop Client SDK package hash: $hash" }
 
       - name: Restore
         run: dotnet restore "BKE AirStack/BKE AirStack.csproj"
+
+      - name: Verify SDK restore
+        shell: pwsh
+        run: |
+          $assets = Get-Content "BKE AirStack/obj/project.assets.json" -Raw
+          if ($assets -notmatch 'BKE\.Desktop\.Client/1\.0\.0') { throw 'BKE Desktop Client SDK 1.0.0 was not restored.' }
 
       - name: Build
         run: dotnet build "BKE AirStack/BKE AirStack.csproj" -c Release --no-restore
@@ -27,12 +41,17 @@ jobs:
       - name: Verify licensing integration boundaries
         shell: pwsh
         run: |
+          $project = Get-Content "BKE AirStack/BKE AirStack.csproj" -Raw
           $program = Get-Content "BKE AirStack/Program.cs" -Raw
           $agent = Get-Content "BKE AirStack/Licensing/AgentClient.cs" -Raw
           $module = Get-Content "BKE AirStack/Licensing/ModuleLaunchClient.cs" -Raw
-          if ($agent -notmatch '/v1/license-center/open') { throw 'Native License Center endpoint missing' }
+          if ($project -notmatch '<TargetFramework>net8\.0-windows</TargetFramework>') { throw '.NET 8 Windows target missing' }
+          if ($project -notmatch 'PackageReference Include="BKE\.Desktop\.Client" Version="1\.0\.0"') { throw 'BKE Desktop Client SDK reference missing' }
+          if ($agent -notmatch 'BkeDesktopClient\.Create') { throw 'SDK-backed Licensing Agent client missing' }
+          if ($agent -match 'HttpClient|127\.0\.0\.1:43873|/v1/authorize|/v1/license-center/open') { throw 'Direct Licensing Agent HTTP transport must not return to Air Stack' }
           if ($program -notmatch 'RetryAuthorization') { throw 'Bounded reauthorization missing' }
-          if ($module -notmatch 'bke.module-ipc.v1') { throw 'Secure module IPC schema missing' }
+          if ($module -notmatch 'bke\.module-ipc\.v1') { throw 'Secure Render Dock module IPC schema missing' }
+          if ($module -notmatch 'air-stack-render-dock-v1') { throw 'Render Dock launch policy missing' }
           if ($module -match '--air-stack|--enterprise|Environment.GetCommandLineArgs') { throw 'CLI authority is forbidden' }
 
       - name: Publish updater payload candidate
