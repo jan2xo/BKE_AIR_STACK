@@ -1,4 +1,4 @@
-using BKE.Desktop.Client;
+using BKE.Desktop.Licensing;
 using System;
 using System.IO;
 using System.Reflection;
@@ -6,16 +6,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using SdkAuthorizationStatus = BKE.Desktop.Client.AuthorizationStatus;
-using SdkLicenseCenterStatus = BKE.Desktop.Client.LicenseCenterStatus;
+using SdkAuthorizationStatus = BKE.Desktop.Licensing.AuthorizationStatus;
 
 namespace BKE_Air_Stack.Licensing
 {
     internal sealed class AgentClient : IDisposable
     {
-        private readonly BkeDesktopClient _client = BkeDesktopClient.Create();
+        private readonly BkeLicensingClient _client = BkeLicensingClient.Create();
 
-        internal async Task<AuthorizationResult> AuthorizeAsync(
+        internal async Task<AuthorizationResult> EnsureAuthorizedAsync(
             CancellationToken cancellationToken = default)
         {
             ProductManifest manifest;
@@ -36,10 +35,14 @@ namespace BKE_Air_Stack.Licensing
                     "Air Stack product or installation identity is missing or invalid.");
             }
 
-            var result = await _client.AuthorizeAsync(
+            var result = await _client.EnsureAuthorizedAsync(
                 manifest.ProductId,
                 manifest.Version,
                 installationId,
+                new LicensingFlowOptions
+                {
+                    ActivationInteraction = ActivationInteraction.NativeDesktop
+                },
                 cancellationToken).ConfigureAwait(false);
 
             return result.Status switch
@@ -47,74 +50,30 @@ namespace BKE_Air_Stack.Licensing
                 SdkAuthorizationStatus.Authorized => new AuthorizationResult(
                     AuthorizationStatus.Allowed,
                     "Air Stack is authorized."),
-                SdkAuthorizationStatus.ActivationRequired => new AuthorizationResult(
-                    AuthorizationStatus.ActivationRequired,
-                    "Air Stack requires activation."),
+                SdkAuthorizationStatus.ActivationCancelled => new AuthorizationResult(
+                    AuthorizationStatus.Cancelled,
+                    "Air Stack activation was cancelled."),
                 SdkAuthorizationStatus.AgentUnavailable => new AuthorizationResult(
                     AuthorizationStatus.AgentUnavailable,
                     "The Licensing Agent is unavailable."),
                 SdkAuthorizationStatus.Timeout => new AuthorizationResult(
                     AuthorizationStatus.AgentUnavailable,
-                    "The Licensing Agent did not respond in time."),
+                    "The Licensing Agent or License Center did not respond in time."),
                 SdkAuthorizationStatus.Unsupported => new AuthorizationResult(
                     AuthorizationStatus.Unsupported,
-                    "This Air Stack product or version is not supported."),
+                    "This Air Stack product, version, or activation presentation is not supported."),
                 SdkAuthorizationStatus.Denied => new AuthorizationResult(
                     AuthorizationStatus.Denied,
                     "The Licensing Agent denied Air Stack startup."),
+                SdkAuthorizationStatus.ActivationRequired => new AuthorizationResult(
+                    AuthorizationStatus.Denied,
+                    "Air Stack activation did not complete."),
                 SdkAuthorizationStatus.ProtocolRejected => new AuthorizationResult(
                     AuthorizationStatus.InvalidResponse,
-                    "The Licensing Agent rejected the authorization request."),
+                    "The Licensing Agent rejected the licensing request."),
                 _ => new AuthorizationResult(
                     AuthorizationStatus.InvalidResponse,
                     "Authorization could not be verified.")
-            };
-        }
-
-        internal async Task<NativeLicenseCenterResult> OpenNativeLicenseCenterAsync(
-            CancellationToken cancellationToken = default)
-        {
-            ProductManifest manifest;
-            string installationId;
-            try
-            {
-                manifest = LoadManifest();
-                installationId = InstallationIdentity.GetOrCreate();
-            }
-            catch (Exception)
-            {
-                return new NativeLicenseCenterResult(
-                    NativeLicenseCenterStatus.Failed,
-                    "Air Stack product context is invalid.");
-            }
-
-            var result = await _client.OpenLicenseCenterAsync(
-                manifest.ProductId,
-                manifest.Version,
-                installationId,
-                cancellationToken).ConfigureAwait(false);
-
-            return result.Status switch
-            {
-                SdkLicenseCenterStatus.AuthorizationRefreshed => new NativeLicenseCenterResult(
-                    NativeLicenseCenterStatus.AuthorizationRefreshed,
-                    "Air Stack activation was refreshed."),
-                SdkLicenseCenterStatus.Cancelled => new NativeLicenseCenterResult(
-                    NativeLicenseCenterStatus.Cancelled,
-                    "Activation was cancelled."),
-                SdkLicenseCenterStatus.AgentUnavailable => new NativeLicenseCenterResult(
-                    NativeLicenseCenterStatus.AgentUnavailable,
-                    string.IsNullOrWhiteSpace(result.Reason)
-                        ? "Native License Center is unavailable."
-                        : result.Reason),
-                SdkLicenseCenterStatus.Timeout => new NativeLicenseCenterResult(
-                    NativeLicenseCenterStatus.AgentUnavailable,
-                    "The native License Center did not complete in time."),
-                _ => new NativeLicenseCenterResult(
-                    NativeLicenseCenterStatus.Failed,
-                    string.IsNullOrWhiteSpace(result.Reason)
-                        ? "Activation was not completed."
-                        : result.Reason)
             };
         }
 
@@ -169,25 +128,5 @@ namespace BKE_Air_Stack.Licensing
             [JsonPropertyName("entryPoint")]
             public string EntryPoint { get; set; } = string.Empty;
         }
-    }
-
-    internal enum NativeLicenseCenterStatus
-    {
-        AuthorizationRefreshed,
-        Cancelled,
-        AgentUnavailable,
-        Failed
-    }
-
-    internal sealed class NativeLicenseCenterResult
-    {
-        internal NativeLicenseCenterResult(NativeLicenseCenterStatus status, string message)
-        {
-            Status = status;
-            Message = message;
-        }
-
-        internal NativeLicenseCenterStatus Status { get; }
-        internal string Message { get; }
     }
 }
