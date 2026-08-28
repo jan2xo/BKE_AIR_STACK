@@ -18,6 +18,13 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Verify .NET 8 SDK selection
+        shell: pwsh
+        run: |
+          dotnet --info
+          $sdkVersion = dotnet --version
+          if (-not $sdkVersion.StartsWith('8.0.')) { throw "Expected .NET SDK 8.0.x, selected $sdkVersion" }
+
       - name: Verify certified SDK package
         shell: pwsh
         run: |
