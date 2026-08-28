@@ -1,7 +1,6 @@
 using System;
 using BKE_Air_Stack.Licensing;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace BKE_Air_Stack
@@ -45,28 +44,11 @@ namespace BKE_Air_Stack
         private static bool AuthorizeOrRecover()
         {
             using var agentClient = new AgentClient();
-            var authorization = agentClient.AuthorizeAsync().GetAwaiter().GetResult();
+            var authorization = agentClient.EnsureAuthorizedAsync().GetAwaiter().GetResult();
 
-            if (authorization.Status == AuthorizationStatus.ActivationRequired)
+            if (authorization.Status == AuthorizationStatus.Cancelled)
             {
-                var center = agentClient.OpenNativeLicenseCenterAsync().GetAwaiter().GetResult();
-                if (center.Status == NativeLicenseCenterStatus.AuthorizationRefreshed)
-                {
-                    authorization = RetryAuthorization(agentClient).GetAwaiter().GetResult();
-                }
-                else if (center.Status == NativeLicenseCenterStatus.Cancelled)
-                {
-                    return false;
-                }
-                else
-                {
-                    MessageBox.Show(
-                        center.Message,
-                        "Air Stack Licensing",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    return false;
-                }
+                return false;
             }
 
             if (authorization.Status == AuthorizationStatus.AgentUnavailable)
@@ -86,28 +68,6 @@ namespace BKE_Air_Stack
             }
 
             return true;
-        }
-
-        private static async Task<AuthorizationResult> RetryAuthorization(AgentClient agentClient)
-        {
-            var deadline = DateTime.UtcNow.AddSeconds(30);
-            AuthorizationResult result = new AuthorizationResult(
-                AuthorizationStatus.ActivationRequired,
-                "Waiting for activation refresh.");
-
-            while (DateTime.UtcNow < deadline)
-            {
-                result = await agentClient.AuthorizeAsync().ConfigureAwait(false);
-                if (result.Status != AuthorizationStatus.ActivationRequired)
-                {
-                    return result;
-                }
-                await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-            }
-
-            return new AuthorizationResult(
-                AuthorizationStatus.Denied,
-                "Activation completed but Air Stack authorization did not refresh in time.");
         }
 
         private static void AddRenderDockModule(Form mainForm)
