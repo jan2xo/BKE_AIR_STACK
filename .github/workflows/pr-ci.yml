@@ -67,6 +67,7 @@ jobs:
           $tray = Get-Content "BKE AirStack/Notifications/NotificationTrayController.cs" -Raw
           $updates = Get-Content "BKE AirStack/Updates/UpdateCoordinator.cs" -Raw
           $bootstrap = Get-Content "scripts/bootstrap-bke-sdk.ps1" -Raw
+          $releaseWorkflow = Get-Content ".github/workflows/vmix-launch-hotfix-release.yml" -Raw
 
           if ($project -notmatch '<TargetFramework>net10\.0-windows</TargetFramework>') { throw '.NET 10 Windows target missing' }
           if ($project -notmatch 'PackageReference Include="BKE\.Desktop\.Licensing" Version="2\.0\.0"') { throw 'BKE Desktop Licensing 2.0.0 reference missing' }
@@ -102,21 +103,34 @@ jobs:
           if ($program -notmatch 'NotificationCoordinator\.Attach\(mainForm\)') { throw 'Post-start notification coordinator is not composed.' }
           if ($program -notmatch 'NotificationTrayController\.Attach\(mainForm\)') { throw 'Notification tray is not composed.' }
 
+          if ($releaseWorkflow -notmatch 'dotnet-version: 10\.0\.x') { throw 'Windows installer release workflow is not on .NET 10.' }
+          if ($releaseWorkflow -notmatch 'bootstrap-bke-sdk\.ps1') { throw 'Windows installer release workflow does not prepare the pinned BKE SDK.' }
+
           if ($module -notmatch 'bke\.module-ipc\.v1') { throw 'Secure Render Dock module IPC schema missing' }
           if ($module -notmatch 'air-stack-render-dock-v1') { throw 'Render Dock launch policy missing' }
           if ($module -match '--air-stack|--enterprise|Environment.GetCommandLineArgs') { throw 'CLI authority is forbidden' }
 
-      - name: Publish updater payload candidate
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
+
+      - name: Build Windows installer candidate
+        shell: pwsh
+        run: ./scripts/build-windows-installer.ps1
+
+      - name: Verify installer runtime and uninstall
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json).version
+          ./scripts/verify-windows-installer.ps1 -InstallerPath "./artifacts/installer/Air-Stack-$version-Windows-x64.exe"
+
+      - name: Build updater payload candidate
         shell: pwsh
         run: |
           $manifest = Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json
-          $publish = './artifacts/pr-update-publish'
-          dotnet publish "BKE AirStack/BKE AirStack.csproj" -c Release -r win-x64 --self-contained true --output $publish -p:PublishSingleFile=false -p:PublishTrimmed=false -p:GenerateManifests=false -p:SignManifests=false -p:DebugType=None -p:DebugSymbols=false
-          if ($LASTEXITCODE -ne 0) { throw 'Updater payload publish failed.' }
-          Copy-Item -LiteralPath './BKE AirStack/bke.manifest.json' -Destination (Join-Path $publish 'bke.manifest.json') -Force
-          ./scripts/build-updater-payload.ps1 -PublishDirectory $publish -OutputDirectory './artifacts/pr-update' -Version ([string]$manifest.version)
+          ./scripts/build-updater-payload.ps1 -PublishDirectory './artifacts/publish/win-x64' -OutputDirectory './artifacts/installer' -Version ([string]$manifest.version)
           if ($LASTEXITCODE -ne 0) { throw 'Updater payload build failed.' }
-          $metadata = Get-Content -LiteralPath "./artifacts/pr-update/Air-Stack-$($manifest.version)-Windows-x64.update.json" -Raw | ConvertFrom-Json
+          $metadata = Get-Content -LiteralPath "./artifacts/installer/Air-Stack-$($manifest.version)-Windows-x64.update.json" -Raw | ConvertFrom-Json
           if ($metadata.schema -ne 'bke.update-package.v1' -or
               $metadata.productId -ne 'bke-air-stack' -or
               $metadata.version -ne [string]$manifest.version -or
@@ -124,9 +138,13 @@ jobs:
             throw 'Updater payload metadata contract invalid.'
           }
 
-      - name: Upload PR updater evidence
+      - name: Upload PR installer and updater evidence
         uses: actions/upload-artifact@v7
         with:
           name: Air-Stack-net10-notification-convergence
-          path: artifacts/pr-update/**
+          path: |
+            artifacts/installer/Air-Stack-*-Windows-x64.exe
+            artifacts/installer/Air-Stack-installer.json
+            artifacts/installer/Air-Stack-*-Windows-x64.update.zip
+            artifacts/installer/Air-Stack-*-Windows-x64.update.json
           if-no-files-found: error
