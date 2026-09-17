@@ -12,65 +12,139 @@ jobs:
   windows-build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out exact source
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - uses: actions/setup-dotnet@v6
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
-      - name: Verify .NET 8 SDK selection
+      - name: Verify .NET 10 SDK selection
         shell: pwsh
         run: |
           dotnet --info
           $sdkVersion = dotnet --version
-          if (-not $sdkVersion.StartsWith('8.0.')) { throw "Expected .NET SDK 8.0.x, selected $sdkVersion" }
+          if (-not $sdkVersion.StartsWith('10.0.')) { throw "Expected .NET SDK 10.0.x, selected $sdkVersion" }
 
-      - name: Verify certified SDK package
+      - name: Prepare pinned BKE SDK capabilities
+        shell: pwsh
+        run: .\scripts\bootstrap-bke-sdk.ps1
+
+      - name: Restore product and contract tests
         shell: pwsh
         run: |
-          $package = "packages/BKE.Desktop.Client.1.0.0.nupkg"
-          if (-not (Test-Path -LiteralPath $package)) { throw 'Certified BKE Desktop Client SDK package is missing.' }
-          $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '9cd80194bc0ddb5f1f983143d37282f470cfb7772e41fa2d9df691f48425071e') { throw "Unexpected BKE Desktop Client SDK package hash: $hash" }
+          dotnet restore "BKE AirStack/BKE AirStack.csproj"
+          if ($LASTEXITCODE -ne 0) { throw 'Air Stack restore failed.' }
+          dotnet restore "AirStack.Tests/AirStack.Tests.csproj"
+          if ($LASTEXITCODE -ne 0) { throw 'Air Stack contract-test restore failed.' }
 
-      - name: Restore
-        run: dotnet restore "BKE AirStack/BKE AirStack.csproj"
-
-      - name: Verify SDK restore
+      - name: Verify modern SDK restore graph
         shell: pwsh
         run: |
           $assets = Get-Content "BKE AirStack/obj/project.assets.json" -Raw
-          if ($assets -notmatch 'BKE\.Desktop\.Client/1\.0\.0') { throw 'BKE Desktop Client SDK 1.0.0 was not restored.' }
+          if ($assets -notmatch 'BKE\.Desktop\.Licensing/2\.0\.0') { throw 'BKE Desktop Licensing 2.0.0 was not restored.' }
+          if ($assets -notmatch 'BKE\.Notifications/0\.5\.0') { throw 'BKE Notifications 0.5.0 was not restored.' }
+          if ($assets -notmatch 'BKE\.Updater/0\.4\.0') { throw 'BKE Updater 0.4.0 was not restored.' }
+          if ($assets -match 'BKE\.Desktop\.Client/1\.0\.0') { throw 'Legacy BKE Desktop Client must not remain in the restore graph.' }
 
-      - name: Build
+      - name: Build Air Stack
         run: dotnet build "BKE AirStack/BKE AirStack.csproj" -c Release --no-restore
 
-      - name: Verify licensing integration boundaries
+      - name: Test startup and notification contracts
+        run: dotnet test "AirStack.Tests/AirStack.Tests.csproj" -c Release --no-restore
+
+      - name: Verify convergence boundaries
         shell: pwsh
         run: |
           $project = Get-Content "BKE AirStack/BKE AirStack.csproj" -Raw
           $program = Get-Content "BKE AirStack/Program.cs" -Raw
           $agent = Get-Content "BKE AirStack/Licensing/AgentClient.cs" -Raw
           $module = Get-Content "BKE AirStack/Licensing/ModuleLaunchClient.cs" -Raw
-          if ($project -notmatch '<TargetFramework>net8\.0-windows</TargetFramework>') { throw '.NET 8 Windows target missing' }
-          if ($project -notmatch 'PackageReference Include="BKE\.Desktop\.Client" Version="1\.0\.0"') { throw 'BKE Desktop Client SDK reference missing' }
-          if ($agent -notmatch 'BkeDesktopClient\.Create') { throw 'SDK-backed Licensing Agent client missing' }
+          $notifications = Get-Content "BKE AirStack/Notifications/NotificationCoordinator.cs" -Raw
+          $tray = Get-Content "BKE AirStack/Notifications/NotificationTrayController.cs" -Raw
+          $updates = Get-Content "BKE AirStack/Updates/UpdateCoordinator.cs" -Raw
+          $bootstrap = Get-Content "scripts/bootstrap-bke-sdk.ps1" -Raw
+          $releaseWorkflow = Get-Content ".github/workflows/vmix-launch-hotfix-release.yml" -Raw
+
+          if ($project -notmatch '<TargetFramework>net10\.0-windows</TargetFramework>') { throw '.NET 10 Windows target missing' }
+          if ($project -notmatch 'PackageReference Include="BKE\.Desktop\.Licensing" Version="2\.0\.0"') { throw 'BKE Desktop Licensing 2.0.0 reference missing' }
+          if ($project -notmatch 'PackageReference Include="BKE\.Notifications" Version="0\.5\.0"') { throw 'BKE Notifications 0.5.0 reference missing' }
+          if ($project -notmatch 'PackageReference Include="BKE\.Updater" Version="0\.4\.0"') { throw 'BKE Updater 0.4.0 reference missing' }
+          if ($project -match 'PackageReference Include="BKE\.Desktop\.Client"') { throw 'Legacy BKE Desktop Client reference must remain removed' }
+          if (-not $bootstrap.Contains('82a0dc7540b1b599c027995efe79f05aa5e7c010')) { throw 'BKE SDK bootstrap is not pinned to the provider-owned notification cadence head.' }
+
+          if ($agent -notmatch 'BkeLicensingClient\.Create') { throw 'BKE Desktop Licensing client missing' }
+          if ($agent -notmatch 'EnsureAuthorizedAsync' -or $agent -notmatch 'OpenLicenseCenterAsync') { throw 'Canonical Agent-owned licensing recovery missing' }
           if ($agent -match 'HttpClient|127\.0\.0\.1:43873|/v1/authorize|/v1/license-center/open') { throw 'Direct Licensing Agent HTTP transport must not return to Air Stack' }
-          if ($program -notmatch 'RetryAuthorization') { throw 'Bounded reauthorization missing' }
+          if ($program -match 'authorization\.Message|center\.Message|RetryAuthorization') { throw 'Raw Agent diagnostics or legacy recovery flow leaked into customer-facing startup' }
+
+          $preflight = $program.IndexOf('NotificationCoordinator.ShowBeforeLicensing()')
+          $grace = $program.IndexOf('GracePeriodClient')
+          $authorize = $program.IndexOf('EnsureAuthorizedAsync')
+          if ($preflight -lt 0 -or $grace -le $preflight -or $authorize -le $preflight) { throw 'Notification preflight must run before grace and licensing.' }
+
+          if ($notifications -notmatch 'ProductId = "bke-air-stack"') { throw 'Air Stack notification product identity missing' }
+          if ($notifications -notmatch 'BkeNotificationInboxClient\.Create' -or $notifications -notmatch 'ShownThisProcess') { throw 'Startup notification inbox semantics missing' }
+          if ($notifications -match 'HttpClient|127\.0\.0\.1:43873|/v1/notifications/') { throw 'Raw notification transport leaked into startup coordinator' }
+          if ($tray -notmatch 'BkeNotificationInboxClient\.Create') { throw 'Notification tray is not Agent-backed through BKE.Notifications' }
+          if ($tray -notmatch 'GetUnreadCountAsync' -or $tray -notmatch 'GetFeedAsync' -or $tray -notmatch 'MarkReadAsync' -or $tray -notmatch 'DismissAsync') { throw 'Notification tray lifecycle contract is incomplete' }
+          if ($tray -match 'HttpClient|127\.0\.0\.1:43873|/v1/notifications/') { throw 'Raw notification transport leaked into notification tray' }
+
+          if ($updates -notmatch 'BkeUpdaterClient\.Create' -or $updates -notmatch 'UpdateCheckStatus\.UpdateAvailable') { throw 'Typed BKE Updater integration missing' }
+          if ($updates -match 'HttpClient|127\.0\.0\.1:43873|/v1/updates|/v1/update-center/open') { throw 'Direct updater provider protocol must not return to Air Stack' }
+          if (Test-Path 'BKE AirStack/Licensing/AgentUpdateClient.cs') { throw 'Legacy AgentUpdateClient must remain removed.' }
+          if (Test-Path 'BKE AirStack/Licensing/AgentUpdateCoordinator.cs') { throw 'Legacy AgentUpdateCoordinator must remain removed.' }
+          if (Test-Path 'BKE AirStack/Licensing/AuthorizationResult.cs') { throw 'Duplicate licensing result contract must remain removed.' }
+
+          if ($program -notmatch 'UpdateCoordinator\.Attach\(mainForm\)') { throw 'BKE Updater is not composed into Air Stack.' }
+          if ($program -notmatch 'NotificationCoordinator\.Attach\(mainForm\)') { throw 'Post-start notification coordinator is not composed.' }
+          if ($program -notmatch 'NotificationTrayController\.Attach\(mainForm\)') { throw 'Notification tray is not composed.' }
+
+          if ($releaseWorkflow -notmatch 'dotnet-version: 10\.0\.x') { throw 'Windows installer release workflow is not on .NET 10.' }
+          if ($releaseWorkflow -notmatch 'bootstrap-bke-sdk\.ps1') { throw 'Windows installer release workflow does not prepare the pinned BKE SDK.' }
+
           if ($module -notmatch 'bke\.module-ipc\.v1') { throw 'Secure Render Dock module IPC schema missing' }
           if ($module -notmatch 'air-stack-render-dock-v1') { throw 'Render Dock launch policy missing' }
           if ($module -match '--air-stack|--enterprise|Environment.GetCommandLineArgs') { throw 'CLI authority is forbidden' }
 
-      - name: Publish updater payload candidate
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
+
+      - name: Build Windows installer candidate
+        shell: pwsh
+        run: ./scripts/build-windows-installer.ps1
+
+      - name: Verify installer runtime and uninstall
+        shell: pwsh
+        run: |
+          $version = (Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json).version
+          ./scripts/verify-windows-installer.ps1 -InstallerPath "./artifacts/installer/Air-Stack-$version-Windows-x64.exe"
+
+      - name: Build updater payload candidate
         shell: pwsh
         run: |
           $manifest = Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json
-          $publish = './artifacts/pr-update-publish'
-          dotnet publish "BKE AirStack/BKE AirStack.csproj" -c Release -r win-x64 --self-contained true --output $publish -p:PublishSingleFile=false -p:PublishTrimmed=false -p:GenerateManifests=false -p:SignManifests=false -p:DebugType=None -p:DebugSymbols=false
-          if ($LASTEXITCODE -ne 0) { throw 'Updater payload publish failed.' }
-          Copy-Item -LiteralPath './BKE AirStack/bke.manifest.json' -Destination (Join-Path $publish 'bke.manifest.json') -Force
-          ./scripts/build-updater-payload.ps1 -PublishDirectory $publish -OutputDirectory './artifacts/pr-update' -Version ([string]$manifest.version)
-          $metadata = Get-Content -LiteralPath "./artifacts/pr-update/Air-Stack-$($manifest.version)-Windows-x64.update.json" -Raw | ConvertFrom-Json
-          if ($metadata.schema -ne 'bke.update-package.v1' -or $metadata.productId -ne 'bke-air-stack' -or $metadata.contentType -ne 'application/vnd.bke.update-package+zip') { throw 'Updater payload metadata contract invalid.' }
+          ./scripts/build-updater-payload.ps1 -PublishDirectory './artifacts/publish/win-x64' -OutputDirectory './artifacts/installer' -Version ([string]$manifest.version)
+          if ($LASTEXITCODE -ne 0) { throw 'Updater payload build failed.' }
+          $metadata = Get-Content -LiteralPath "./artifacts/installer/Air-Stack-$($manifest.version)-Windows-x64.update.json" -Raw | ConvertFrom-Json
+          if ($metadata.schema -ne 'bke.update-package.v1' -or
+              $metadata.productId -ne 'bke-air-stack' -or
+              $metadata.version -ne [string]$manifest.version -or
+              $metadata.contentType -ne 'application/vnd.bke.update-package+zip') {
+            throw 'Updater payload metadata contract invalid.'
+          }
+
+      - name: Upload PR installer and updater evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: Air-Stack-net10-notification-convergence
+          path: |
+            artifacts/installer/Air-Stack-*-Windows-x64.exe
+            artifacts/installer/Air-Stack-installer.json
+            artifacts/installer/Air-Stack-*-Windows-x64.update.zip
+            artifacts/installer/Air-Stack-*-Windows-x64.update.json
+          if-no-files-found: error
