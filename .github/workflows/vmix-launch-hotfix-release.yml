@@ -31,10 +31,20 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      - name: Set up .NET 6
+      - name: Set up .NET 10
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 6.0.428
+          dotnet-version: 10.0.x
+
+      - name: Verify .NET 10 SDK selection
+        shell: pwsh
+        run: |
+          $sdkVersion = dotnet --version
+          if (-not $sdkVersion.StartsWith('10.0.')) { throw "Expected .NET SDK 10.0.x, selected $sdkVersion" }
+
+      - name: Prepare pinned BKE SDK capabilities
+        shell: pwsh
+        run: .\scripts\bootstrap-bke-sdk.ps1
 
       - name: Install Inno Setup
         shell: pwsh
@@ -43,6 +53,15 @@ jobs:
       - name: Build application and installer
         shell: pwsh
         run: ./scripts/build-windows-installer.ps1
+
+      - name: Verify modern SDK restore graph
+        shell: pwsh
+        run: |
+          $assets = Get-Content "BKE AirStack/obj/project.assets.json" -Raw
+          if ($assets -notmatch 'BKE\.Desktop\.Licensing/2\.0\.0') { throw 'BKE Desktop Licensing 2.0.0 was not restored into the release build.' }
+          if ($assets -notmatch 'BKE\.Notifications/0\.5\.0') { throw 'BKE Notifications 0.5.0 was not restored into the release build.' }
+          if ($assets -notmatch 'BKE\.Updater/0\.4\.0') { throw 'BKE Updater 0.4.0 was not restored into the release build.' }
+          if ($assets -match 'BKE\.Desktop\.Client/1\.0\.0') { throw 'Legacy BKE Desktop Client must not remain in the release restore graph.' }
 
       - name: Build verified updater payload candidate
         shell: pwsh
