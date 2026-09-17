@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
     <RootNamespace>BKE_Air_Stack</RootNamespace>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -27,7 +27,9 @@
     <WCFMetadata Include="Connected Services\" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="BKE.Desktop.Client" Version="1.0.0" />
+    <PackageReference Include="BKE.Desktop.Licensing" Version="2.0.0" />
+    <PackageReference Include="BKE.Notifications" Version="0.5.0" />
+    <PackageReference Include="BKE.Updater" Version="0.4.0" />
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="System.Data.DataSetExtensions" Version="4.5.0" />
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.116.0" />
