@@ -130,7 +130,6 @@ jobs:
         run: |
           $manifest = Get-Content -LiteralPath './BKE AirStack/bke.manifest.json' -Raw | ConvertFrom-Json
           ./scripts/build-updater-payload.ps1 -PublishDirectory './artifacts/publish/win-x64' -OutputDirectory './artifacts/installer' -Version ([string]$manifest.version)
-          if ($LASTEXITCODE -ne 0) { throw 'Updater payload build failed.' }
           $metadata = Get-Content -LiteralPath "./artifacts/installer/Air-Stack-$($manifest.version)-Windows-x64.update.json" -Raw | ConvertFrom-Json
           if ($metadata.schema -ne 'bke.update-package.v1' -or
               $metadata.productId -ne 'bke-air-stack' -or

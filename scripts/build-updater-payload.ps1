@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 if (-not (Test-Path -LiteralPath $PublishDirectory -PathType Container)) { throw 'Publish directory is missing.' }
+$PublishDirectory = (Resolve-Path -LiteralPath $PublishDirectory).Path
 if ([string]::IsNullOrWhiteSpace($Version)) { throw 'Version is required.' }
 if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $EntryPoint) -PathType Leaf)) { throw 'Updater payload entry point is missing.' }
 
@@ -39,6 +40,16 @@ try {
         }
     } finally { $archive.Dispose() }
 } finally { $stream.Dispose() }
+
+$verificationStream = [System.IO.File]::OpenRead($payloadPath)
+try {
+    $verificationArchive = [System.IO.Compression.ZipArchive]::new($verificationStream, [System.IO.Compression.ZipArchiveMode]::Read, $false)
+    try {
+        $expectedEntryPoint = $EntryPoint.Replace('\','/')
+        $entryPointMatch = $verificationArchive.Entries | Where-Object { $_.FullName -ceq $expectedEntryPoint } | Select-Object -First 1
+        if ($null -eq $entryPointMatch) { throw "Updater payload is missing exact root entry point: $expectedEntryPoint" }
+    } finally { $verificationArchive.Dispose() }
+} finally { $verificationStream.Dispose() }
 
 $payload = Get-Item -LiteralPath $payloadPath
 $hash = (Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
