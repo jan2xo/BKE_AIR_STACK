@@ -74,7 +74,7 @@ jobs:
           if ($project -notmatch 'PackageReference Include="BKE\.Notifications" Version="0\.5\.0"') { throw 'BKE Notifications 0.5.0 reference missing' }
           if ($project -notmatch 'PackageReference Include="BKE\.Updater" Version="0\.4\.0"') { throw 'BKE Updater 0.4.0 reference missing' }
           if ($project -match 'PackageReference Include="BKE\.Desktop\.Client"') { throw 'Legacy BKE Desktop Client reference must remain removed' }
-          if (-not $bootstrap.Contains('82a0dc7540b1b599c027995efe79f05aa5e7c010')) { throw 'BKE SDK bootstrap is not pinned to the provider-owned notification cadence head.' }
+          if (-not $bootstrap.Contains('64a015639a63d7997444a448a926e25b8a0050b2')) { throw 'BKE SDK bootstrap is not pinned to the provider-owned notification cadence head.' }
 
           if ($agent -notmatch 'BkeLicensingClient\.Create') { throw 'BKE Desktop Licensing client missing' }
           if ($agent -notmatch 'EnsureAuthorizedAsync' -or $agent -notmatch 'OpenLicenseCenterAsync') { throw 'Canonical Agent-owned licensing recovery missing' }
