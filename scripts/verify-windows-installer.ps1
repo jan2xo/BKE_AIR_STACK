@@ -36,41 +36,121 @@ function Wait-ForPath([string]$Path, [int]$TimeoutSeconds) {
     return $false
 }
 
-function Start-FakeAgent([string]$ResponseJson, [string]$RequestPath) {
-    return Start-Job -ArgumentList $ResponseJson, $RequestPath -ScriptBlock {
-        param($Json, $OutputPath)
+function Start-FakeAgent([string]$AuthorizationResponseJson, [string]$AuthorizationRequestPath) {
+    return Start-Job -ArgumentList $AuthorizationResponseJson, $AuthorizationRequestPath -ScriptBlock {
+        param($AuthorizationJson, $OutputPath)
+
+        $notificationJson = '{"capability_id":"bke.notifications","contract_version":1,"status":"Succeeded","items":[],"error":null}'
         $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 43873)
         try {
             $listener.Start()
-            $client = $listener.AcceptTcpClient()
-            try {
-                $stream = $client.GetStream()
-                $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::ASCII, $false, 1024, $true)
-                $contentLength = 0
-                while ($true) {
-                    $line = $reader.ReadLine()
-                    if ([string]::IsNullOrEmpty($line)) { break }
-                    if ($line -match '^Content-Length:\s*(\d+)$') { $contentLength = [int]$Matches[1] }
-                }
-                $buffer = New-Object char[] $contentLength
-                $read = 0
-                while ($read -lt $contentLength) {
-                    $count = $reader.Read($buffer, $read, $contentLength - $read)
-                    if ($count -le 0) { break }
-                    $read += $count
-                }
-                $body = -join $buffer[0..([Math]::Max(0, $read - 1))]
-                Set-Content -LiteralPath $OutputPath -Value $body -Encoding UTF8
+            $authorizationHandled = $false
+            while (-not $authorizationHandled) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::ASCII, $false, 1024, $true)
+                    $requestLine = $reader.ReadLine()
+                    if ([string]::IsNullOrWhiteSpace($requestLine)) {
+                        throw "Fake Agent received an empty HTTP request line."
+                    }
 
-                $payload = [Text.Encoding]::UTF8.GetBytes($Json)
-                $header = "HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n"
-                $headerBytes = [Text.Encoding]::ASCII.GetBytes($header)
-                $stream.Write($headerBytes, 0, $headerBytes.Length)
-                $stream.Write($payload, 0, $payload.Length)
-                $stream.Flush()
-            }
-            finally {
-                $client.Dispose()
+                    $contentLength = 0
+                    $chunked = $false
+                    while ($true) {
+                        $line = $reader.ReadLine()
+                        if ([string]::IsNullOrEmpty($line)) { break }
+                        if ($line -match '^Content-Length:\s*(\d+)$') {
+                            $contentLength = [int]$Matches[1]
+                        }
+                        elseif ($line -match '^Transfer-Encoding:\s*(.+)$') {
+                            $chunked = $Matches[1] -match '(^|,)\s*chunked\s*(,|$)'
+                        }
+                    }
+
+                    $body = ""
+                    if ($contentLength -gt 0) {
+                        $buffer = New-Object char[] $contentLength
+                        $read = 0
+                        while ($read -lt $contentLength) {
+                            $count = $reader.Read($buffer, $read, $contentLength - $read)
+                            if ($count -le 0) { break }
+                            $read += $count
+                        }
+                        if ($read -ne $contentLength) {
+                            throw "Fake Agent received a truncated Content-Length request body."
+                        }
+                        $body = -join $buffer
+                    }
+                    elseif ($chunked) {
+                        $builder = [Text.StringBuilder]::new()
+                        while ($true) {
+                            $sizeLine = $reader.ReadLine()
+                            if ($null -eq $sizeLine) {
+                                throw "Fake Agent received a truncated chunked request."
+                            }
+
+                            $sizeToken = ($sizeLine -split ';', 2)[0].Trim()
+                            $chunkSize = 0
+                            $parsed = [int]::TryParse(
+                                $sizeToken,
+                                [Globalization.NumberStyles]::HexNumber,
+                                [Globalization.CultureInfo]::InvariantCulture,
+                                [ref]$chunkSize)
+                            if (-not $parsed -or $chunkSize -lt 0) {
+                                throw "Fake Agent received an invalid chunk size."
+                            }
+
+                            if ($chunkSize -eq 0) {
+                                while ($true) {
+                                    $trailer = $reader.ReadLine()
+                                    if ($null -eq $trailer -or $trailer.Length -eq 0) { break }
+                                }
+                                break
+                            }
+
+                            $buffer = New-Object char[] $chunkSize
+                            $read = 0
+                            while ($read -lt $chunkSize) {
+                                $count = $reader.Read($buffer, $read, $chunkSize - $read)
+                                if ($count -le 0) { break }
+                                $read += $count
+                            }
+                            if ($read -ne $chunkSize) {
+                                throw "Fake Agent received a truncated HTTP chunk."
+                            }
+
+                            [void]$builder.Append($buffer, 0, $read)
+                            $terminator = $reader.ReadLine()
+                            if ($null -eq $terminator -or $terminator.Length -ne 0) {
+                                throw "Fake Agent received an invalid chunk terminator."
+                            }
+                        }
+                        $body = $builder.ToString()
+                    }
+
+                    if ($requestLine -match '^POST /v1/notifications/feed(?:\?.*)? HTTP/') {
+                        $responseJson = $notificationJson
+                    }
+                    elseif ($requestLine -match '^POST /v1/authorize(?:\?.*)? HTTP/') {
+                        Set-Content -LiteralPath $OutputPath -Value $body -Encoding UTF8
+                        $responseJson = $AuthorizationJson
+                        $authorizationHandled = $true
+                    }
+                    else {
+                        throw "Fake Agent received an unexpected request: $requestLine"
+                    }
+
+                    $payload = [Text.Encoding]::UTF8.GetBytes($responseJson)
+                    $header = "HTTP/1.1 200 OK`r`nContent-Type: application/json`r`nContent-Length: $($payload.Length)`r`nConnection: close`r`n`r`n"
+                    $headerBytes = [Text.Encoding]::ASCII.GetBytes($header)
+                    $stream.Write($headerBytes, 0, $headerBytes.Length)
+                    $stream.Write($payload, 0, $payload.Length)
+                    $stream.Flush()
+                }
+                finally {
+                    $client.Dispose()
+                }
             }
         }
         finally {
