@@ -34,7 +34,7 @@ namespace BKE_Air_Stack.Licensing
                     "Air Stack product or installation identity is missing or invalid.");
             }
 
-            var authorization = await _client.EnsureAuthorizedAsync(
+            return await _client.EnsureAuthorizedAsync(
                 manifest.ProductId,
                 manifest.Version,
                 installationId,
@@ -43,63 +43,6 @@ namespace BKE_Air_Stack.Licensing
                     ActivationInteraction = ActivationInteraction.NativeDesktop
                 },
                 cancellationToken).ConfigureAwait(false);
-
-            if (authorization.Status != AuthorizationStatus.Denied)
-            {
-                return authorization;
-            }
-
-            // A denied local authorization can represent a stale or otherwise
-            // unverifiable persisted lease. Do not expose the Agent's internal
-            // denial reason to the user; let the Agent own recovery presentation.
-            var center = await _client.OpenLicenseCenterAsync(
-                manifest.ProductId,
-                manifest.Version,
-                installationId,
-                cancellationToken).ConfigureAwait(false);
-
-            switch (center.Status)
-            {
-                case LicenseCenterStatus.AuthorizationRefreshed:
-                case LicenseCenterStatus.Completed:
-                    return await _client.AuthorizeAsync(
-                        manifest.ProductId,
-                        manifest.Version,
-                        installationId,
-                        cancellationToken).ConfigureAwait(false);
-
-                case LicenseCenterStatus.Cancelled:
-                    return new AuthorizationResult(
-                        AuthorizationStatus.ActivationCancelled,
-                        "activation_cancelled");
-
-                case LicenseCenterStatus.AgentUnavailable:
-                    return new AuthorizationResult(AuthorizationStatus.AgentUnavailable, center.Reason);
-
-                case LicenseCenterStatus.Timeout:
-                    return new AuthorizationResult(AuthorizationStatus.Timeout, center.Reason);
-
-                case LicenseCenterStatus.ProtocolRejected:
-                    return new AuthorizationResult(AuthorizationStatus.ProtocolRejected, center.Reason);
-
-                case LicenseCenterStatus.InvalidRequest:
-                    return new AuthorizationResult(AuthorizationStatus.InvalidRequest, center.Reason);
-
-                case LicenseCenterStatus.InvalidResponse:
-                    return new AuthorizationResult(AuthorizationStatus.InvalidResponse, center.Reason);
-
-                case LicenseCenterStatus.InvalidProductContext:
-                case LicenseCenterStatus.IncompatibleProductVersion:
-                case LicenseCenterStatus.Unsupported:
-                    return new AuthorizationResult(AuthorizationStatus.Unsupported, center.Reason);
-
-                case LicenseCenterStatus.ActivationFailed:
-                case LicenseCenterStatus.Failed:
-                default:
-                    return new AuthorizationResult(
-                        AuthorizationStatus.Denied,
-                        "license_center_recovery_failed");
-            }
         }
 
         public void Dispose()

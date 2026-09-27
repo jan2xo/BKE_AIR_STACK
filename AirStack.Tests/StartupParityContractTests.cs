@@ -30,12 +30,12 @@ public sealed class StartupParityContractTests
         var agent = Read("BKE AirStack", "Licensing", "AgentClient.cs");
 
         Assert.Contains("<TargetFramework>net10.0-windows</TargetFramework>", project);
-        Assert.Contains("BKE.Desktop.Licensing\" Version=\"2.0.0", project);
+        Assert.Contains("BKE.Desktop.Licensing\" Version=\"2.0.1", project);
         Assert.DoesNotContain("BKE.Desktop.Client", project, StringComparison.Ordinal);
         Assert.Contains("BkeLicensingClient.Create", agent);
         Assert.Contains("EnsureAuthorizedAsync", agent);
-        Assert.Contains("OpenLicenseCenterAsync", agent);
-        Assert.Contains("AuthorizeAsync", agent);
+        Assert.DoesNotContain("OpenLicenseCenterAsync", agent, StringComparison.Ordinal);
+        Assert.DoesNotContain("AuthorizeAsync", agent, StringComparison.Ordinal);
         Assert.DoesNotContain("HttpClient", agent, StringComparison.Ordinal);
         Assert.DoesNotContain("127.0.0.1:43873", agent, StringComparison.Ordinal);
         Assert.DoesNotContain("/v1/authorize", agent, StringComparison.Ordinal);

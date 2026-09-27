@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         run: |
           $assets = Get-Content "BKE AirStack/obj/project.assets.json" -Raw
-          if ($assets -notmatch 'BKE\.Desktop\.Licensing/2\.0\.0') { throw 'BKE Desktop Licensing 2.0.0 was not restored.' }
+          if ($assets -notmatch 'BKE\.Desktop\.Licensing/2\.0\.1') { throw 'BKE Desktop Licensing 2.0.1 was not restored.' }
           if ($assets -notmatch 'BKE\.Notifications/0\.5\.0') { throw 'BKE Notifications 0.5.0 was not restored.' }
           if ($assets -notmatch 'BKE\.Updater/0\.4\.0') { throw 'BKE Updater 0.4.0 was not restored.' }
           if ($assets -match 'BKE\.Desktop\.Client/1\.0\.0') { throw 'Legacy BKE Desktop Client must not remain in the restore graph.' }
@@ -70,14 +70,15 @@ jobs:
           $releaseWorkflow = Get-Content ".github/workflows/vmix-launch-hotfix-release.yml" -Raw
 
           if ($project -notmatch '<TargetFramework>net10\.0-windows</TargetFramework>') { throw '.NET 10 Windows target missing' }
-          if ($project -notmatch 'PackageReference Include="BKE\.Desktop\.Licensing" Version="2\.0\.0"') { throw 'BKE Desktop Licensing 2.0.0 reference missing' }
+          if ($project -notmatch 'PackageReference Include="BKE\.Desktop\.Licensing" Version="2\.0\.1"') { throw 'BKE Desktop Licensing 2.0.1 reference missing' }
           if ($project -notmatch 'PackageReference Include="BKE\.Notifications" Version="0\.5\.0"') { throw 'BKE Notifications 0.5.0 reference missing' }
           if ($project -notmatch 'PackageReference Include="BKE\.Updater" Version="0\.4\.0"') { throw 'BKE Updater 0.4.0 reference missing' }
           if ($project -match 'PackageReference Include="BKE\.Desktop\.Client"') { throw 'Legacy BKE Desktop Client reference must remain removed' }
-          if (-not $bootstrap.Contains('64a015639a63d7997444a448a926e25b8a0050b2')) { throw 'BKE SDK bootstrap is not pinned to the provider-owned notification cadence head.' }
+          if (-not $bootstrap.Contains('8563d86976f65cd0cfcdd7e21c6c428c561e5dfe')) { throw 'BKE SDK bootstrap is not pinned to the merged shared SDK head.' }
 
           if ($agent -notmatch 'BkeLicensingClient\.Create') { throw 'BKE Desktop Licensing client missing' }
-          if ($agent -notmatch 'EnsureAuthorizedAsync' -or $agent -notmatch 'OpenLicenseCenterAsync') { throw 'Canonical Agent-owned licensing recovery missing' }
+          if ($agent -notmatch 'EnsureAuthorizedAsync') { throw 'Canonical Agent-owned licensing flow missing' }
+          if ($agent -match 'OpenLicenseCenterAsync|AuthorizeAsync') { throw 'Product-owned licensing recovery policy must remain absent' }
           if ($agent -match 'HttpClient|127\.0\.0\.1:43873|/v1/authorize|/v1/license-center/open') { throw 'Direct Licensing Agent HTTP transport must not return to Air Stack' }
           if ($program -match 'authorization\.Message|center\.Message|RetryAuthorization') { throw 'Raw Agent diagnostics or legacy recovery flow leaked into customer-facing startup' }
 
